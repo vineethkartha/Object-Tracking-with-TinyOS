@@ -1,0 +1,22 @@
+#define NEW_PRINTF_SEMANTICS
+#include "printf.h"
+
+configuration rssiAppC {
+} implementation {
+components MainC;
+components LedsC;
+  components rssiC as App;
+  components PrintfC;
+  components SerialStartC;
+  components new AMReceiverC(5);
+  components ActiveMessageC;
+  components CC2420ActiveMessageC;
+  
+
+App.Leds-> LedsC;
+  
+  App.Boot ->MainC;
+  App.AMControl -> ActiveMessageC;
+  App.Receive     ->AMReceiverC;
+  App -> CC2420ActiveMessageC.CC2420Packet;
+}

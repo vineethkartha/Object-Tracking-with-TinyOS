@@ -1,0 +1,90 @@
+/* This is the code for the Central mote for the object tracking project
+Date: 08-03-2014
+*/
+
+#include"nodeids.h"
+#include"printf.h"
+#include<Timer.h>
+
+
+#define TIME_SYNC 10000
+typedef nx_struct MobileMote {
+  nx_uint16_t nodeid;
+} MobileMote;
+
+typedef nx_struct timesync {
+  nx_uint16_t nodeid;
+  nx_uint16_t time;
+} timesync;
+
+module circumMoteC
+{
+	uses interface Boot;
+	uses interface Leds;
+	uses interface AMSend;
+	uses interface Packet;
+	uses interface AMPacket;
+	uses interface Timer<TMilli> as clock;
+	uses interface SplitControl as AMControl;
+	uses interface Receive;
+	uses interface CC2420Packet;
+}
+
+implementation
+{
+	uint16_t secs=0;
+	bool busy=FALSE;
+	
+	message_t tsync_pkt;
+
+	uint16_t getRssi(message_t *msg);
+	
+	event void Boot.booted()
+	{
+		call AMControl.start();
+		call clock.startPeriodic(1000);
+	}
+	
+
+	
+	event void clock.fired()
+	{
+		secs++;
+		printf("time on %d is %d\n",TOS_NODE_ID,secs);
+		printfflush();
+	}
+
+
+	event void AMControl.startDone(error_t err)
+	{
+	}
+
+
+	event void AMSend.sendDone(message_t* msg,error_t err)
+	{
+	}	
+
+	event void AMControl.stopDone(error_t err) { }
+
+	event message_t* Receive.receive(message_t* msg, void* payload, uint8_t len)
+	{
+		if(len==sizeof(timesync))
+			{
+				timesync* btrpkt=(timesync*)payload;
+				if(btrpkt ->nodeid==CENTRAL)
+				{
+					printf("received time as %d from %d\n",btrpkt->time,btrpkt->nodeid);
+					printfflush();
+					if(secs!=btrpkt->time)
+						secs=btrpkt->time;
+				}
+				
+			}
+		return msg;
+	}
+	uint16_t getRssi(message_t *msg)
+	{
+		call Leds.set(0);
+		return (uint16_t)call CC2420Packet.getRssi(msg);
+	}
+}

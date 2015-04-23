@@ -1,0 +1,2 @@
+COMPONENT=mobileAppC
+include $(MAKERULES)

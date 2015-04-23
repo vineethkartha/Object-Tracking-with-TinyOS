@@ -1,0 +1,3 @@
+COMPONENT=circummoteAppC
+CFLAGS += -I$(TOSDIR)/lib/printf
+include $(MAKERULES)

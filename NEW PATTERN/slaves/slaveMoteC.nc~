@@ -1,0 +1,218 @@
+/* This is the code for the Central mote for the object tracking project
+Date: 08-03-2014
+*/
+
+#include"nodeids.h"
+#include"printf.h"
+#include<Timer.h>
+#include"messages.h"
+
+#define CLOCK_TICK 100
+
+
+
+module slaveMoteC
+{
+	uses interface Boot;
+	uses interface Leds;
+	uses interface AMSend;
+	uses interface Packet;
+	uses interface AMPacket;
+	uses interface Timer<TMilli> as clock;
+	uses interface SplitControl as AMControl;
+	uses interface Receive;
+	uses interface CC2420Packet;
+}
+
+implementation
+{
+	uint16_t msec=0;
+	uint16_t sec=0,dsec;
+	uint16_t min=0,dmin;
+	uint16_t hr=0,dhr;
+	uint16_t mob=0;
+	uint8_t my_master=0;
+	uint8_t level=-1;
+	uint8_t loopcnt=0,loopcntrw=0;
+	uint16_t mote_locs[4][5];
+        uint16_t rssi[5];
+	uint16_t index=1;
+	uint8_t synccheck=0;
+
+	bool busy=FALSE;
+	bool data=FALSE;
+	
+	message_t tsync_pkt;
+	uint16_t getRssi(message_t *msg);
+	
+	event void Boot.booted()
+	{
+		call AMControl.start();
+		call clock.startPeriodic(CLOCK_TICK);
+	}
+	
+
+	
+	event void clock.fired()
+	{
+		if(msec<1000)
+		{
+			msec+=CLOCK_TICK;
+		}
+		else if(sec<60)
+		{
+			sec++;
+			msec=0;
+			synccheck++;
+			if(synccheck>11)
+			{
+				level=0;
+				my_master=0;
+				call Leds.set(level);
+			}
+		}
+		else if(min<60)
+		{
+			min++;
+			sec=0;
+			msec=0;
+		}
+		else
+		{
+			hr++;
+			min=0;
+			sec=0;
+			msec=0;
+		}
+		
+		
+		if(index>10)
+		{
+			index=1;
+		}
+		if((TOS_NODE_ID-100)==index)
+		{
+			if(!busy && data && my_master!=0)
+			{
+				LocData* btrpkt=(LocData*)(call Packet.getPayload(&tsync_pkt,sizeof(LocData)));
+				btrpkt->nodeid=TOS_NODE_ID;
+				for(loopcnt=0;loopcnt<5;loopcnt++)
+				{
+						btrpkt->loc_data[loopcnt]=mote_locs[0][loopcnt];
+						btrpkt->loc_sec[loopcnt]=mote_locs[1][loopcnt];
+						btrpkt->loc_min[loopcnt]=mote_locs[2][loopcnt];
+						btrpkt->msec[loopcnt]=mote_locs[3][loopcnt];
+						printf("\nMote %d @%d:%d:%d\n",mote_locs[0][loopcnt],mote_locs[1][loopcnt],mote_locs[2][loopcnt],ote_locs[3][loopcnt]);	
+						printfflush();
+				}			
+				printf("\Index is %d\n",index);
+				printfflush();
+				
+				if(call AMSend.send(my_master,&tsync_pkt,sizeof(LocData))==SUCCESS)
+					busy=TRUE;
+				data=FALSE;
+				call Leds.set(7);
+				for(loopcntrw=0;loopcntrw<4;loopcntrw++)
+				{
+					for(loopcnt=0;loopcnt<5;loopcnt++)
+					{
+						mote_locs[loopcntrw][loopcnt]=0;
+					
+					}			
+				}
+			}
+		}
+		index++;
+	
+	}
+
+	event void AMControl.startDone(error_t err)
+	{
+	}
+
+
+	event void AMSend.sendDone(message_t* msg,error_t err)
+	{
+		if(&tsync_pkt==msg)
+		{
+			busy=FALSE;
+			call Leds.set(level);
+		}
+	}	
+
+	event void AMControl.stopDone(error_t err) { }
+
+	event message_t* Receive.receive(message_t* msg, void* payload, uint8_t len)
+	{
+		if(len==sizeof(timesync))
+		{
+			timesync* btrpkt=(timesync*)payload;
+			printf("Received\n");
+				printfflush();
+			if(level==-1||btrpkt->nodeid==my_master||btrpkt->nodeid==100)
+			{
+				synccheck=0;
+				msec=btrpkt->msec;
+				sec=btrpkt->sec;
+				min=btrpkt->min;
+				hr=btrpkt->hr;
+				my_master=btrpkt->nodeid;		
+				level=btrpkt->level;
+				index=btrpkt->index;
+				level++;
+				call Leds.set(level);
+				printf("\ntime on %d  is %d:%d:%d:%d\nreceived level as value as %d\n",TOS_NODE_ID,hr,min,sec,msec,btrpkt->level);
+				printfflush();
+				if(!busy)
+              			{	
+			                timesync* btrpkt=(timesync*)(call Packet.getPayload(&tsync_pkt,sizeof(timesync)));
+					btrpkt->nodeid=TOS_NODE_ID;
+					btrpkt->msec=msec;
+					btrpkt->sec=sec;
+					btrpkt->min=min;
+					btrpkt->hr=hr;	
+					btrpkt->level=level;
+					btrpkt->index=index;			
+					if(call AMSend.send(AM_BROADCAST_ADDR,&tsync_pkt,sizeof(timesync))==SUCCESS)
+						busy=TRUE;
+					//printf("\nSend time value as %d\n",sec);
+					//printfflush();
+        		        }
+			}
+		}
+		
+		if(len==sizeof(LocData))
+		{
+			LocData* btrpkt=(LocData*)payload;
+			for(loopcnt=0;loopcnt<5;loopcnt++)
+			{
+				if(btrpkt->loc_data[loopcnt]!=0)
+				{
+					mote_locs[0][loopcnt]=btrpkt->loc_data[loopcnt];
+					mote_locs[1][loopcnt]=btrpkt->loc_sec[loopcnt];
+					mote_locs[2][loopcnt]=btrpkt->loc_min[loopcnt];
+					mote_locs[3][loopcnt]=btrpkt->msec[loopcnt];
+				}
+			}
+			
+			printf("\n Received the data from %d\n",btrpkt->nodeid);	
+			printfflush();
+		}
+		if(len==sizeof(MobileMote))
+		{
+			MobileMote* btrpkt=(MobileMote*)payload;
+			mote_locs[0][btrpkt->nodeid-200]=TOS_NODE_ID-100;
+			mote_locs[1][btrpkt->nodeid-200]=min;
+			mote_locs[2][btrpkt->nodeid-200]=sec;
+			mote_locs[3][btrpkt->nodeid-200]=msec;
+			data=TRUE;
+			
+		}
+	return msg;
+	}
+	uint16_t getRssi(message_t *msg)
+	{
+		//call Leds.set(0);
+		return (uint16_t)call CC2420Packet.getRssi(msg);
+	}
+}
